@@ -1,1 +1,38 @@
+#include <Servo.h>
 
+Servo servo1;
+Servo servo2;
+
+const int pin1 = 9;  // Servo 1 pin
+const int pin2 = 6;  // Servo 2 pin
+
+void setup() {
+  Serial.begin(9600);
+  servo1.attach(pin1);
+  servo2.attach(pin2);
+  servo1.write(90);
+  servo2.write(90);
+  Serial.println("✅ Arduino ready. Waiting for angles...");
+}
+
+void loop() {
+  static String input = "";
+  if (Serial.available()) {
+    char c = Serial.read();
+    if (c == '\n') {
+      input.trim();
+      if (input.startsWith("S1:")) {
+        int angle1 = input.substring(3).toInt();
+        servo1.write(angle1);
+      } else if (input.startsWith("S2:")) {
+        int angle2 = input.substring(3).toInt();
+        servo2.write(angle2);
+        delay(5);  // Allow servo to reach
+        Serial.println("OK");  // Sync signal
+      }
+      input = "";
+    } else {
+      input += c;
+    }
+  }
+}
