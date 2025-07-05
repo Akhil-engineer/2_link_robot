@@ -1,0 +1,98 @@
+import math
+import serial
+import time
+import numpy as np
+
+# === ROBOT CONFIGURATION ===
+L1 = 15.0     # link 1 length in cm
+L2 = 15.0     # link 2 length in cm
+PORT = "COM6" # update this to your COM port
+BAUD = 9600
+TRIM_Q1 = 0.0
+TRIM_Q2 = 0.0
+DRAW_DELAY = 0.05  # seconds
+POINTS = 200       # number of points on the circle
+RADIUS = 5.0       # circle radius in cm
+CENTER = (15.0, 15.0)
+
+ser = None
+prev_q1 = 0.0
+prev_q2 = 0.0
+
+# === SERIAL INITIALIZATION ===
+def init_serial():
+    global ser
+    try:
+        ser = serial.Serial(PORT, BAUD, timeout=1)
+        time.sleep(2)
+        print("🔌 Serial connected.")
+    except Exception as e:
+        print(f"❌ Serial error: {e}")
+        ser = None
+
+# === SEND ANGLES TO ARDUINO ===
+def send_to_arduino(q1, q2):
+    if not ser:
+        return
+    a1 = int(round(q1 + TRIM_Q1))
+    a2 = int(round(q2 + TRIM_Q2))
+    print(f"Sending Q1: {a1}°, Q2: {a2}°")
+    ser.write(f"S1:{a1}\n".encode())
+    time.sleep(0.002)
+    ser.write(f"S2:{a2}\n".encode())
+    while True:
+        if ser.in_waiting:
+            if ser.readline().decode().strip() == "OK":
+                break
+
+# === INVERSE KINEMATICS ===
+def ik_send(x, y):
+    global prev_q1, prev_q2
+
+    # workspace boundaries
+    r = math.hypot(x, y)
+    if r > (L1 + L2) or r < abs(L1 - L2):
+        print(f"❌ Point out of reach: ({x:.2f}, {y:.2f})")
+        return
+
+    c2 = (x**2 + y**2 - L1**2 - L2**2) / (2 * L1 * L2)
+    c2 = max(-1, min(1, c2))
+    t2 = math.acos(c2)
+    q2 = 180 - math.degrees(t2)
+
+    k1 = L1 + L2 * math.cos(t2)
+    k2 = L2 * math.sin(t2)
+    t1 = math.atan2(y, x) - math.atan2(k2, k1)
+    q1 = math.degrees(t1)
+    if q1 < 0:
+        q1 += 360
+
+    # skip very small changes to reduce jitter
+    if abs(q1 - prev_q1) < 0.5 and abs(q2 - prev_q2) < 0.5:
+        return
+
+    send_to_arduino(q1, q2)
+    prev_q1, prev_q2 = q1, q2
+    time.sleep(DRAW_DELAY)
+
+# === DRAW A CIRCLE ===
+def draw_circle():
+    cx, cy = CENTER
+    print(f"🌀 Drawing circle at ({cx},{cy}) radius {RADIUS} cm")
+    for angle in np.linspace(0, 2 * math.pi, POINTS):
+        x = cx + RADIUS * math.cos(angle)
+        y = cy + RADIUS * math.sin(angle)
+        ik_send(x, y)
+    print("✅ Circle drawing complete.")
+
+# === MAIN ===
+def main():
+    init_serial()
+    if not ser:
+        return
+    draw_circle()
+    ser.close()
+    print("🔌 Serial disconnected.")
+
+if __name__ == "__main__":
+    main()
